@@ -1,13 +1,12 @@
 #include <curses.h>
-#include <deque>
-#include <iostream>
 #include <ncurses.h>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <random>
+#include <chrono>
 #include <algorithm>
-
 
 #include "tokanizer.hpp"
 
@@ -16,30 +15,24 @@
 #define wxy(window, x, y) int y, x; getyx(stdscr, y, x);
 #define xy(x, y) wxy(stdscr, x, y);
 
-typedef struct Position {
-  int x;
-  int y;
-} Position;
 
-unsigned char state = 0;
 std::vector<std::string_view> onscreen_tokens;
 std::vector<int> line;
-std::string onscreen_string;
+std::string onscreen_string, input_string;
+int position;
 
-bool valid_position(Position cur, Position max) {
-  if (cur.y > max.y) {
-    return false;
-  } else if (cur.y == max.y && cur.x > max.x) {
-    return false;
-  }
-  return true;
-}
+
+const int min_token_count = 2'000, max_token_count = 20'000, onscreen_token_count = 12;
+void setoptions(){}
 
 void push_tokens(Tokens tk, int num) {
   static std::vector<std::string_view> token_bank = {"a", "b"};
-  static auto rng = std::default_random_engine{};
-  if (token_bank.size() < 2'000 && (1 + tk.pos - tk.file < tk.file_length)) {
-    for (auto i : give_tokens(10'000, tk)) {
+  static std::mt19937 rng{ static_cast<std::mt19937::result_type>(
+		std::chrono::steady_clock::now().time_since_epoch().count()
+		) };
+  //static auto rng = std::default_random_engine{};
+  if (token_bank.size() < min_token_count && (1 + tk.pos - tk.file < tk.file_length)) {
+    for (auto i : give_tokens(max_token_count, tk)) {
       token_bank.push_back(i);
     }
     std::shuffle(token_bank.begin(), token_bank.end(), rng);
@@ -58,13 +51,12 @@ void stringify() {
   int x = 0, y = 0;
   for (auto sv_i : onscreen_tokens) {
     std::string i = std::string(sv_i);
-    x += i.length() + 1;
-    if (x < mx) {
+    x += i.length()+1;
+    if (x <= mx) {
       onscreen_string += i + ' ';
-    } else if (x == mx) {
-      onscreen_string += i;
     } else {
       y++;
+      if (*onscreen_string.rbegin() == ' '){onscreen_string.pop_back();}
       line.push_back(x - i.length() - 1);
       onscreen_string += '\n' + i + ' ';
       x = i.length() + 1;
@@ -75,54 +67,77 @@ void stringify() {
   }
 }
 
-void put_tokens(Tokens &tk, size_t num) {
-  push_tokens(tk, num);
-  stringify();
-  printw("%s", onscreen_string.c_str());
+void process_input(int input) {
+  static bool okay = true;
+  int cur = onscreen_string[position];
+  if (cur == '\n') cur = ' ';
+  if (input == '\n') input = ' ';
+  if (input == cur){
+    addch(onscreen_string[position] | COLOR_PAIR(okay+1));
+    okay = true;
+    position++;
+    if ( line[getcury(stdscr)] == getcurx(stdscr)) {move(getcury(stdscr)+1, 0);}
+    //else if (getmaxy(stdscr) == getcury(stdscr)) {handle_resize(true);}
+  }else {okay = false;}
 }
 
-void validate_line() {
-  for (int index = 0; index < line.size(); index++) {
-    int pos = 0;
-    const auto &i = line[index];
-    move(index, 0);
-    bool okay = true;
-    while (pos < i) {
-      const int current_char = mvinch(getcury(stdscr), getcurx(stdscr));
-      const int input = getch();
-      if (input == current_char) {
-        pos++;
-        addch(current_char | COLOR_PAIR(okay+1));
-        okay = true;
-      }else {okay = false;}
-    }
+void process_input_str(){
+  position = 0;
+  move(0, 0);
+  for (auto i: input_string){
+    process_input(i);
   }
 }
 
+void handle_resize(const bool force = false){
+  static auto x = getmaxx(stdscr);
+  static auto y = getmaxy(stdscr);
+  if (force || x != getmaxx(stdscr) || y != getmaxy(stdscr)){
+    x = getmaxx(stdscr);
+    y = getmaxy(stdscr);
+    clear();
+    stringify();
+    attron(COLOR_PAIR(3));
+    printw("%s", onscreen_string.c_str());
+    attroff(COLOR_PAIR(3));
+    process_input_str();
+    //move(0,0);
+    refresh();
+  }
+}
+
+void put_tokens(Tokens &tk, size_t num) {
+  move(0,0);
+  clear();
+  attron(COLOR_PAIR(3));
+  push_tokens(tk, num);
+  stringify();
+  printw("%s", onscreen_string.c_str());
+  attroff(COLOR_PAIR(3));
+  move(0,0);
+}
+
 void init() {
-  state = 0;
-  char c = -1;
   Tokens tk = make_tokens("rando.txt");
   initscr();
   noecho();
   raw();
   keypad(stdscr, TRUE);
-  Position max = {0, 0};
   start_color();
   init_pair(1, COLOR_RED, COLOR_BLACK);
   init_pair(2, COLOR_GREEN, COLOR_BLACK);
   init_pair(3, COLOR_WHITE, COLOR_BLACK);
   while (1) {
-    clear();
-    move(0, 0);
-    //attron(COLOR_PAIR(3));
-    put_tokens(tk, 32);
-    //attroff(COLOR_PAIR(3));
-    move(4, 0);
-    // printw("%lu", line.size());
+    position = 0;
+    input_string = "";
+    put_tokens(tk, onscreen_token_count);
     refresh();
-    // getch();
-    validate_line();
+    while(position < onscreen_string.length()-1){
+      handle_resize();
+      int ch = getch(); 
+      input_string += (char) ch;
+      process_input(ch);
+    }
   }
   endwin();
 }
