@@ -1,6 +1,6 @@
 # typer
 dependey: ncurces (is already installed in most linux distros)
 
-make project with with `g++ -c tui.cpp -o tui.o && g++ -c tokanizer.cpp -o tokanizer.o && g++ tokanizer.o tui.o -lncurses && ./a.out`
+make project with `make all` and run with `make run`
 
 text file thanks to https://github.com/dwyl/english-words
