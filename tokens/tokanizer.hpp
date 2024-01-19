@@ -5,7 +5,6 @@
 typedef struct Token{
   uint32_t y, x;
   std::string value;
-  std::vector<int> output;
 }Token;
 
 

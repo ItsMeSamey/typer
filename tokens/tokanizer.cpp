@@ -106,7 +106,6 @@ const std::vector<Token> give_tokens(const uint32_t num) {
         .y=1000,
         .x=1000,
         .value = std::string(*token_bank.rbegin()),
-        .output = {},
         });
     token_bank.pop_back();
   }
