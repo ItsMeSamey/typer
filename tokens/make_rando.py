@@ -2,8 +2,16 @@ lines = []
 with open("rando.txt", 'r') as f:
   lines = f.read().splitlines()
 
+with open("tokanizer_inbuilt.hpp", "w") as f:
+  f.write('''#pragma once
+#include <cstdint>
+#include <vector>
+
+const char* give_inbuilt_file();
+const uint32_t give_inbuilt_size();
+''')
+
 with open("tokanizer_inbuilt.cpp", 'w') as f:
-  hpp = open("tokanizer_inbuilt.hpp", "w")
   f.write('''#include <vector>
 #include <cstdint>
 #include "tokanizer_inbuilt.hpp"
@@ -11,25 +19,13 @@ with open("tokanizer_inbuilt.cpp", 'w') as f:
 constexpr const char tokens[] = "''')
   for i in lines:
     f.write(f'{i}\\0')
-  hpp.write("""
-#include <cstdint>
-#include <vector>
-
-const char* give_inbuilt_file();
-std::vector<uint32_t>* give_inbuilt_offsets();
-""")
-  f.write("\";\nstd::vector<uint32_t> list = {")
-  sum = 0;
-  for i in lines:
-    f.write(f'{sum},')
-    sum = sum+len(i)+1
-  f.write("""};
+  f.write('''";
 const char* give_inbuilt_file(){
   return tokens;
 }
-std::vector<uint32_t>* give_inbuilt_offsets(){
-  return &list;
+const uint32_t give_inbuilt_size(){
+  return sizeof(tokens);
 }
-""")
+''')
 print("Done!")
 
