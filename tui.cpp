@@ -34,22 +34,6 @@ State state;
 int onscreen_token_count = 5,
     position_y = OFFSET_Y;
 
-void KILL(uint32_t y, /*uint32_t x,*/ std::string s, uint32_t b, uint32_t incr = 1){
-  static int aa = 0;
-  aa+=incr;
-  static std::vector<uint64_t> v;
-  static std::vector<std::string> u;
-  v.push_back(y);
-  u.push_back(s);
-  if (aa==b){
-    endwin();
-    for (auto i =0;i < v.size(); i++){
-      std::cout << u[i] << ": " << v[i] << '\n';
-    }
-    std::cout << std::endl;
-    std::exit(0);
-  }
-}
 void put_token(const Token &t){
   move(t.y, t.x);
   for (auto &i: t.output){
@@ -62,21 +46,16 @@ void make_tokens(){
   move(OFFSET_Y, OFFSET_X);
   for (auto &i: onscreen_tokens){
     getyx(stdscr, i.y, i.x);
-    //KILL(getcury(stdscr),getcurx(stdscr), "Killed", 3);
     const uint32_t size = i.x + i.value.size();
-    //KILL(_cur.y , _cur.x, "Killed", 2);
     if (size < mx) {
       put_token(i);
-      //printw("%s ", i.value.c_str());
     } else if (size == mx) {
       attrdo(A_BOLD, put_token(i););
       move(i.y + 1, OFFSET_X+1);
     } else {
       move(++i.y, i.x = OFFSET_X);
       put_token(i);
-      //printw("%s ", i.value.c_str());
     }
-    //*/
   }
   move(OFFSET_Y, OFFSET_X);
 }
@@ -113,7 +92,6 @@ KILL(0, input_token, 3);
     else {
       okay = false;}
   }
-//   KILL(getcury(stdscr),getcurx(stdscr), "Killed", 2);
   move(_cur.y, _cur.x);
   for (auto &i: _cur.output){addch(i);}
 }
@@ -137,7 +115,6 @@ void process_input(){
         mvprintw(my - 1, 0, "%x", ch);
         move(y, x);
       }
-//KILL(ch, "Killed", 3);
       switch (ch) {
         case 0x1b:
           input_tokens.clear();
@@ -174,10 +151,6 @@ void handle_resize(const bool force) {
     clear();
     time_keeper(TIME_PRINT);
     make_tokens();
-    //stringify();
-    //attrdo(COLOR_PAIR(2), make_tokens());
-    /*for (auto i : input_string)
-      process_input(i);*/
     refresh();
   }
 }
