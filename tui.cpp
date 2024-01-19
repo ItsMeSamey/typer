@@ -1,16 +1,16 @@
+#include <chrono>
 #include <cstdint>
-#include <curses.h>
+#include <cstdlib>
 #include <functional>
 #include <ncurses.h>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <chrono>
-#include "tokens/tokanizer.hpp"
-#include "tui.hpp"
-#include <cstdlib>
 
-#include <iostream>
+#include "tui.hpp"
+#include "tokens/tokanizer.hpp"
+
+
 #define attrdo(attr, stuff...) attron(attr);stuff;attroff(attr);
 //#define attrdo(attr, stuff...) if (attroff(attr) !=0 ){attron(attr);stuff;}else{attron(attr);stuff;attroff(attr);}
 #define OFFSET_Y 1
@@ -28,7 +28,7 @@ enum Timeop : uint8_t {
 std::function<void(std::vector<Token>, std::vector<std::string>, std::vector<std::chrono::steady_clock::time_point>)> callback = NULL;
 std::vector<std::chrono::steady_clock::time_point> bookmarks;
 std::vector<Token> onscreen_tokens;
-std::vector<std::string> input_tokens;//onscreen_string, 
+std::vector<std::string> input_tokens;
 uint32_t position, mx, my;
 State state;
 int onscreen_token_count = 5,
@@ -85,7 +85,6 @@ void process_token(std::string &input_token, Token &_cur) {
   uint8_t pos = 0;
   _cur.output.clear();
   _cur.output.reserve(cur.size());
-KILL(0, input_token, 3);
   for (auto &i: input_token){
     if (i == cur[pos]){
       _cur.output.push_back((inp)i | COLOR_PAIR(okay));pos++;okay = true;}
