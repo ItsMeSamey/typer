@@ -5,6 +5,7 @@ all: tui tokanizer tokens build
 # STANDARD = -std=c++11
 
 LINKS = -lncurses
+CXX = clang++
 
 clean:
 	rm a.out tui.o tokanizer.o tokanizer_inbuilt.o
@@ -16,7 +17,7 @@ tokanizer: Makefile tokens/tokanizer.cpp
 	$(CXX) -c $(WARNINGS) $(OPTIMIZE) $(STANDARD) tokens/tokanizer.cpp
 
 tokens: Makefile tokens/tokanizer_inbuilt.cpp
-	(cd tokens && python3 make_rando.py)
+#	(cd tokens && python3 make_rando.py)
 	$(CXX) -c $(WARNINGS) $(OPTIMIZE) $(STANDARD) tokens/tokanizer_inbuilt.cpp
 
 build: Makefile

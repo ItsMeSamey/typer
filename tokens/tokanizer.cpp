@@ -102,8 +102,11 @@ const std::vector<Token> give_tokens(const uint32_t num) {
   std::vector<Token> ret;
   fill_token_bank();
   for (uint32_t i = 0; i < num; i++) {
-    ret.push_back({
-        .value = std::string(*token_bank.rbegin())
+    ret.push_back(Token{
+        .y=1000,
+        .x=1000,
+        .value = std::string(*token_bank.rbegin()),
+        .output = {},
         });
     token_bank.pop_back();
   }
