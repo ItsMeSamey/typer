@@ -17,10 +17,14 @@
 #define OFFSET_Y 1
 #define OFFSET_X 0
 
-/* minimum accuracy
- * add burst speed
+/* 
+ * implement settings
+ * have tokens and time on top in diffrent ncurses windows
+ * make io asyncronous
+ * minimum accuracy
+ * add burst speed (maybe)
  * keep history
- * do files
+ * do files (users can open the=ir own token or literal files)
  * compare to last time(word speed)
  */
 
@@ -134,7 +138,6 @@ void process_token(uint32_t index) {
         if (pos && (pos == input.at_out)){
           input.at_out--;
         }
-//KILL((void *)0,std::string("")+(char)*input.onscreen.rend(), 2);
         input.onscreen.pop_back();
         for (auto j = index; j< onscreen_token_count; j++) put_token(j);
         break;
@@ -156,10 +159,8 @@ void process_token(uint32_t index) {
   }
   move(cur.y, cur.x);
   for (auto i: input.onscreen){
-KILL((void *)1,std::string(":")+(char)i, 2, 0);
     addch(i);
   }
-KILL((void *)2,std::string(":"), 1, 0);
 }
 
 const bool handle_redraw(const bool force = false) {
