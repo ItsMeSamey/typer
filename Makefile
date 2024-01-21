@@ -1,7 +1,7 @@
 all: tokens tui build
 
 # WARNINGS = -Wall -Weffc++ -Wextra -Wsign-conversion -pedantic-errors
-OPTIMIZE = -O3
+OPTIMIZE = -O0 -ggdb
 # STANDARD = -std=c++11
 
 LINKS = -lncurses

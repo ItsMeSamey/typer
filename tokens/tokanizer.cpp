@@ -4,6 +4,7 @@
 #include <fstream>
 #include <random>
 #include <vector>
+#include <cstring>
 
 #include "tokanizer.hpp"
 #include "tokanizer_inbuilt.hpp"
@@ -25,7 +26,7 @@ inline const bool NO(char *c) {
 
 uint32_t min_tokens = 2'000;
 uint32_t max_tokens = 10'000;
-std::vector<std::string_view> token_bank;
+std::vector<char *> token_bank;
 std::vector<File> files;
 
 void const set_token_options(const uint32_t min_tokens,
@@ -60,7 +61,7 @@ const void init_tokens(const std::string &file_name) {
                        .freeable = true});
 }
 
-inline const std::string_view give_single_token(File &tk) noexcept {
+inline char* give_single_token(File &tk) noexcept {
   while (*(tk.file.file + tk.pos) == '\0') {
     tk.pos++;
   };
@@ -105,7 +106,8 @@ const std::vector<Token> give_tokens(const uint32_t num) {
     ret.push_back(Token{
         .y=1000,
         .x=1000,
-        .value = std::string(*token_bank.rbegin()),
+        .value = (*token_bank.rbegin()),
+        .size = strlen(*token_bank.rbegin()),
         });
     token_bank.pop_back();
   }

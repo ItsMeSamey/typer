@@ -1,12 +1,13 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <curses.h>
 #include <functional>
 #include <ncurses.h>
 #include <string>
 #include <string_view>
 #include <vector>
-
+#include <unistd.h>
 #include "tui.hpp"
 #include "tokens/tokanizer.hpp"
 
@@ -16,6 +17,13 @@
 #define OFFSET_Y 1
 #define OFFSET_X 0
 
+/* minimum accuracy
+ * add burst speed
+ * keep history
+ * do files
+ * compare to last time(word speed)
+ */
+
 typedef NCURSES_EXPORT(int) inp;
 enum Timeop : uint8_t {
   TIME_KEEP,
@@ -24,21 +32,16 @@ enum Timeop : uint8_t {
   TIME_RESET,
 };
 typedef struct Input{
+  bool isdone = false;
+  uint8_t at_out = 0;
+  uint32_t at_in = 0;
+  bool okay[256] = {};
   std::string value;
-  inp output[255];
-  uint8_t size = 0;
+  std::vector<inp> onscreen;
 }Input;
 
-std::function<void(std::vector<Token>, std::vector<Input>, std::vector<std::chrono::steady_clock::time_point>)> callback = NULL;
-std::vector<std::chrono::steady_clock::time_point> bookmarks;
-std::vector<Token> onscreen_tokens;
-std::vector<Input> input_tokens;
-uint32_t position, mx, my;
-State state;
-int onscreen_token_count = 5,
-    position_y = OFFSET_Y;
 
-void KILL(void* y, /*uint32_t x,*/ std::string s, uint32_t b, uint32_t incr = 1){
+void KILL(void* y, std::string s, uint32_t b, uint32_t incr = 1){
   static int aa = 0;
   aa+=incr;
   static std::vector<void*> v;
@@ -55,20 +58,30 @@ void KILL(void* y, /*uint32_t x,*/ std::string s, uint32_t b, uint32_t incr = 1)
   }
 }
 
-void make_input_tokens(){
-  input_tokens.clear();
-  input_tokens.resize(onscreen_token_count);
-  for (auto i: input_tokens){
-    i.size = 0;
-  }
-}
+int onscreen_token_count = 5;
+/*
+   class Window{
+   public:
+   Window(WINDOW win){}
+   private://*/
+std::function<void(std::vector<Token>, std::vector<Input>, std::vector<std::chrono::steady_clock::time_point>)> callback = NULL;
+std::vector<std::chrono::steady_clock::time_point> bookmarks;
+std::vector<Token> onscreen_tokens;
+std::vector<Input> input_tokens;
+uint32_t position, mx, my;
+State state;
+int position_y = OFFSET_Y;
+
 
 void put_token(uint32_t index){
   auto &tk = onscreen_tokens[index];
-  const Input &out = input_tokens[(size_t)index];
+  const Input &out = input_tokens[index];
   move(tk.y, tk.x);
-  for (uint8_t i =0;i < out.size;i++){addch(out.output[i]);};
-  attrdo(COLOR_PAIR(3), printw("%s ", (tk.value.c_str()+ out.size) ););
+  if (out.isdone) {
+    for (auto i: out.onscreen){addch(i);};
+  }else {
+    attrdo(COLOR_PAIR(3), printw("%s ", tk.value ));
+  }
 }
 
 void make_tokens(){
@@ -76,7 +89,7 @@ void make_tokens(){
   for (auto index = 0; index< onscreen_token_count; index++){
     auto &i = onscreen_tokens[index];
     getyx(stdscr, i.y, i.x);
-    const uint32_t size = i.x + i.value.size();
+    const uint32_t size = i.x + i.size;
     if (size < mx) {
       put_token(index);
     } else if (size == mx) {
@@ -96,101 +109,120 @@ inline const void time_keeper(Timeop op) {
     case TIME_KEEP: bookmarks.push_back(std::chrono::steady_clock::now()); break;
     case TIME_PRINT: move(0, 0); attrdo(A_BOLD,printw("%3.2f",speed)); move(OFFSET_Y, OFFSET_X); break;
     case TIME_PUSH_BACK:
-      if (bookmarks.size() > 2) 
-        speed = (60'000.0*onscreen_token_count)/(std::chrono::duration_cast<std::chrono::milliseconds>(*bookmarks.rbegin() - *(bookmarks.begin()+1) ).count());
-      if (callback){
-        callback(onscreen_tokens, input_tokens, bookmarks);
-      }
-      time_keeper(TIME_PRINT);
-      [[fallthrough]];
+                     if (bookmarks.size() > 2) 
+                       speed = (60'000.0*onscreen_token_count)/(std::chrono::duration_cast<std::chrono::milliseconds>(*bookmarks.rbegin() - *(bookmarks.begin()+1) ).count());
+                     if (callback){
+                       callback(onscreen_tokens, input_tokens, bookmarks);
+                     }
+                     time_keeper(TIME_PRINT);
+                     [[fallthrough]];
     case TIME_RESET: bookmarks.clear(); break;
   }
 }
 
-void handle_resize(const bool force = false);
-
 void process_token(uint32_t index) {
-  auto &input_token = input_tokens[index];
-  auto &_cur = onscreen_tokens[index];
-  const std::string cur = _cur.value+' ';
-  bool okay = true;
-  uint8_t pos = 0;
-  input_token.size = 0;
-  for (auto &i: input_token.value){
-    if (i == cur[pos]){
-      input_token.output[input_token.size++]=(inp)i | COLOR_PAIR(okay+1);pos++;okay = true;}
-    else {
-      okay = false;}
+  auto &input = input_tokens[index];
+  const auto &cur = onscreen_tokens[index];
+
+  while (input.at_in < input.value.size()){
+    const auto &i = input.value[input.at_in++];
+    const auto pos = input.onscreen.size();
+    auto &okay = input.okay;
+    input.isdone = false;
+    switch (i) {
+      case '\0': 
+        if (pos && (pos == input.at_out)){
+          input.at_out--;
+        }
+//KILL((void *)0,std::string("")+(char)*input.onscreen.rend(), 2);
+        input.onscreen.pop_back();
+        for (auto j = index; j< onscreen_token_count; j++) put_token(j);
+        break;
+      case ' ': 
+        if (input.at_out == cur.size){
+          input.onscreen.push_back(i | COLOR_PAIR(okay[input.at_out]+1));
+          input.isdone = true;
+          break;
+        }
+      default:
+        if((char)i == cur.value[pos] && pos == input.at_out){
+          input.onscreen.push_back(i | COLOR_PAIR(okay[input.at_out]+1));
+          input.at_out++;
+        }else {
+          input.onscreen.push_back(i | COLOR_PAIR(4));
+          okay[input.at_out] = true;
+        }
+    }
   }
-  move(_cur.y, _cur.x);
-  for (uint8_t i =0;i < input_token.size;i++){addch(input_token.output[i]);};
-  //for (auto &i: input_token.output){addch(i);}
+  move(cur.y, cur.x);
+  for (auto i: input.onscreen){
+KILL((void *)1,std::string(":")+(char)i, 2, 0);
+    addch(i);
+  }
+KILL((void *)2,std::string(":"), 1, 0);
 }
 
-void handle_resize(const bool force) {
-  {
-    int x, y;
-    getyx(stdscr, y, x);
-    addch(mvinch(y,x) | A_ITALIC);
-    move(y, x);
-  }
+const bool handle_redraw(const bool force = false) {
   if (force || mx != getmaxx(stdscr) || my != getmaxy(stdscr)) {
     getmaxyx(stdscr, my, mx);
     position = 0;
     clear();
     time_keeper(TIME_PRINT);
     make_tokens();
-    refresh();
+    return true;
   }
+  return false;
 }
 
 void typing_loop(){
   onscreen_tokens = give_tokens(onscreen_token_count);
-  start:
-  make_input_tokens();
+start:
+  input_tokens.clear();
+  input_tokens.resize(onscreen_token_count);
   time_keeper(TIME_PUSH_BACK);
-  handle_resize(true);
-  for (auto i = 0; i < onscreen_token_count;i++){
+  handle_redraw(true);
+  for (int i = 0; i < onscreen_token_count;i++){
+loopstart:
     auto &input = input_tokens[i];
     auto &cur = onscreen_tokens[i];
     bool last_in_line = false;
-    auto max_size = cur.value.size()+1;
+    auto max_size = cur.size+1;
     if( i == onscreen_token_count-1){last_in_line = true; --max_size;}
     else if (onscreen_tokens[i+1].y > cur.y){ last_in_line = true;}
-    move(cur.y, cur.x);
-    while (input.size < max_size) {
-      time_keeper(TIME_KEEP);
-      handle_resize();
-      const inp ch = getch();
+    process_token(i);
+    refresh();
+    while (!input.isdone) {
+      inp ch = getch();
       {
         int x, y;
         getyx(stdscr, y, x);
         mvprintw(my - 1, 0, "%x", ch);
         move(y, x);
       }
-      switch (ch) {
-        case 0x1b:
-          input_tokens.clear();
-          i=0;
-          time_keeper(TIME_RESET);
-          handle_resize(true);
-          goto start;
-          break;
-        case 0x3:
-          state = STATE_QUIT;
-          goto end;
-          break;
-        case '\n':
-          if (last_in_line){
-            input.value += ' ';
-          }
-          input.value += (char)ch;
-          break;
-        default:
-          input.value+= (char)ch;
-          break;
+      if (!handle_redraw()){
+        time_keeper(TIME_KEEP);
+        switch (ch) {
+          case 0x3: state = STATE_QUIT; goto end;
+          case 0x1b: time_keeper(TIME_RESET); goto start;
+          case 0x107: 
+                     if(input.onscreen.size()) {input.value+=('\0');} 
+                     else if (i) {
+                       --i;
+                       input_tokens[i].value += '\0';
+                       goto loopstart;
+                     }
+                     break;
+          case '\n': if (last_in_line) ch = ' '; [[fallthrough]];
+          default: input.value+=(ch); break;
+        }
       }
       process_token(i);
+      {
+        int x, y;
+        getyx(stdscr, y, x);
+        addch(mvinch(y,x) | A_ITALIC);
+        move(y, x);
+      }
       refresh();
     }
   }
@@ -199,6 +231,7 @@ end:
 }
 
 void settings_loop(){
+
 }
 
 inline void init_loop() {
@@ -208,9 +241,10 @@ inline void init_loop() {
   keypad(stdscr, TRUE);
   init_tokens();
   start_color();
-  init_pair(1, COLOR_RED, COLOR_BLACK);
-  init_pair(2, COLOR_GREEN, COLOR_BLACK);
+  init_pair(1, COLOR_GREEN, COLOR_BLACK);
+  init_pair(2, COLOR_MAGENTA, COLOR_BLACK);
   init_pair(3, COLOR_WHITE, COLOR_BLACK);
+  init_pair(4, COLOR_RED, COLOR_BLACK);
   state = STATE_TYPING;
   while (state != STATE_QUIT) {
     switch (state) {
@@ -223,6 +257,8 @@ inline void init_loop() {
 end_all:
   endwin();
 }
+//};
+
 
 
 int main() {
