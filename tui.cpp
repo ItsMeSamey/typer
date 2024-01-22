@@ -27,6 +27,12 @@
  */
 
 typedef NCURSES_EXPORT(int) inp;
+enum Behaviour : uint8_t {
+  BEHAVIOUR_STOP = 0x0,
+  BEHAVIOUR_OVERFLOW = 0x1,
+  BEHAVIOUR_OVERWRITE = 0x2,
+//   BEHAVIOUR_,
+};
 enum State : uint8_t {
   STATE_QUIT = 0,
   STATE_TYPING,
@@ -48,7 +54,6 @@ typedef struct Input{
 }Input;
 
 State state;
-int onscreen_token_count = 5;
 
 #include <iostream>
 void KILL(void* y, std::string s, uint32_t b, uint32_t incr = 1){
@@ -68,13 +73,51 @@ void KILL(void* y, std::string s, uint32_t b, uint32_t incr = 1){
   }
 }
 
+class Options{
+public:
+  size_t onscreen_token_count;
+  Options(size_t onsc_tk, uint32_t maxtk = 2'000, uint32_t mintk = 10'000):onscreen_token_count(onsc_tk){
+    this->min_tokens = mintk;
+    this->max_tokens = maxtk;
+  }
+  void set_token_options(size_t onsc_tk,uint32_t maxtk = 2'000, uint32_t mintk = 10'000){
+    this->onscreen_token_count = onsc_tk;
+    if (!(this->min_tokens == mintk & this->max_tokens == maxtk))
+      set_token_options(this->min_tokens = mintk, this->max_tokens = maxtk);
+  }
+  int normal_flags, next_flags, bad_flags, prev_good_flags, prev_okay_flags, clock_flags;
+  void set_color_pairs(std::pair<int, int> prev_good_flags, std::pair<int, int> prev_okay_flags ,std::pair<int, int> normal_flags,
+      std::pair<int, int> bad_flags, std::pair<int, int> next_flags, std::pair<int, int> clock_flags){
+    init_pair(1,prev_good_flags.first , prev_good_flags.second);
+    init_pair(2, prev_okay_flags.first, prev_okay_flags.second);
+    init_pair(3, normal_flags.first, normal_flags.second);
+    init_pair(4, bad_flags.first, bad_flags.second);
+    init_pair(5, next_flags.first, next_flags.second);
+    init_pair(6, clock_flags.first, clock_flags.second);
+  }
+  void set_flags(int prev_good_flags, int prev_okay_flags, int normal_flags, int bad_flags,int next_flags, int clock_flags){
+    this->prev_good_flags = prev_good_flags | COLOR_PAIR(1);
+    this->prev_okay_flags = prev_okay_flags | COLOR_PAIR(2);
+    this->normal_flags = normal_flags | COLOR_PAIR(3);
+    this->bad_flags = bad_flags | COLOR_PAIR(4);
+    this->next_flags = next_flags | COLOR_PAIR(5);
+    this->clock_flags = clock_flags | COLOR_PAIR(6);
+  }
+  void set_behaviour(Behaviour b){
+    behaviour = b;
+  }
+  bool is_behaviour();
+private:
+  uint32_t min_tokens, max_tokens;
+  Behaviour behaviour;
+};
 class Window{
 public:
-  Window(WINDOW *win):win(win){
+  Options options;
+  Window(WINDOW *win, Options op):win(win), options(op){
     //this->index = 0;
     next_page();
   }
-
   inline const bool is_done(const bool take_action = false){
     const bool is_ = input_tokens.rbegin()->isdone;
     if (is_ &&take_action)
@@ -86,7 +129,7 @@ public:
     auto &cur = onscreen_tokens[this->index];
     bool last_in_line = false;
     auto max_size = cur.size+1;
-    if( this->index == onscreen_token_count-1){last_in_line = true; --max_size;}
+    if( this->index == options.onscreen_token_count-1){last_in_line = true; --max_size;}
     else if (onscreen_tokens[this->index+1].y > cur.y){ last_in_line = true;}
     if (!handle_redraw()){
       time_keeper(TIME_KEEP);
@@ -105,19 +148,19 @@ public:
     process_token();
     is_done(true);
     int x, y; getyx(this->win, y, x);
-    addch(mvinch(y,x) | A_ITALIC);
+    addch((mvinch(y,x) & A_CHARTEXT) | options.next_flags);
     move(y, x);
     refresh();
   }
   void reset(){
     this->index = 0;
     input_tokens.clear();
-    input_tokens.resize(onscreen_token_count);
+    input_tokens.resize(options.onscreen_token_count);
     time_keeper(TIME_PUSH_BACK);
     handle_redraw(true);
   }
   void next_page(){
-    onscreen_tokens = give_tokens(onscreen_token_count);
+    onscreen_tokens = give_tokens(options.onscreen_token_count);
     reset();
   }
 private:
@@ -130,19 +173,19 @@ private:
   WINDOW *win;
 
   inline const void put_token(uint32_t num) noexcept{
-    assert(num < onscreen_token_count);
+    assert(num < options.onscreen_token_count);
     auto &tk = onscreen_tokens[num];
     const Input &out = input_tokens[num];
     move(tk.y, tk.x);
     if (out.isdone) {
       for (auto i: out.onscreen){addch(i);};
     }else {
-      attrdo(COLOR_PAIR(3), printw("%s ", tk.value ));
+      attrdo(options.normal_flags, printw("%s ", tk.value ));
     }
   }
   inline const void make_tokens(){
     move(OFFSET_Y, OFFSET_X);
-    for (auto num = 0; num< onscreen_token_count; num++){
+    for (auto num = 0; num< options.onscreen_token_count; num++){
       auto &i = onscreen_tokens[num];
       getyx(this->win, i.y, i.x);
       const uint32_t size = i.x + i.size;
@@ -161,10 +204,10 @@ private:
   inline const void time_keeper(Timeop op) {
     switch (op) {
       case TIME_KEEP: bookmarks.push_back(std::chrono::steady_clock::now()); break;
-      case TIME_PRINT: move(0, 0); attrdo(A_BOLD,printw("%3.2f",speed)); move(OFFSET_Y, OFFSET_X); break;
+      case TIME_PRINT: move(0, 0); attrdo(options.clock_flags, printw("%3.2f",speed)); move(OFFSET_Y, OFFSET_X); break;
       case TIME_PUSH_BACK:
                        if (bookmarks.size() > 2) 
-                         speed = (60'000.0*onscreen_token_count)/(std::chrono::duration_cast<std::chrono::milliseconds>(*bookmarks.rbegin() - *(bookmarks.begin()+1) ).count());
+                         speed = (60'000.0*options.onscreen_token_count)/(std::chrono::duration_cast<std::chrono::milliseconds>(*bookmarks.rbegin() - *(bookmarks.begin()+1) ).count());
                        if (callback){
                          callback(onscreen_tokens, input_tokens, bookmarks);
                        }
@@ -199,21 +242,21 @@ private:
           } else if (num) {
             input_tokens[--num].value += '\0';
           }
-          for (auto j = num; j< onscreen_token_count; j++) put_token(j);
+          for (auto j = num; j< options.onscreen_token_count; j++) put_token(j);
           break;
         case ' ': 
           if (input.at_out == cur.size){
-            input.onscreen.push_back(i | COLOR_PAIR(okay[input.at_out]+1));
+            input.onscreen.push_back(i | (okay[input.at_out] ? options.prev_okay_flags :options.prev_good_flags));
             input.isdone = true;
             num++;
             break;
           } else [[fallthrough]];
         default:
           if((char)i == cur.value[pos] && pos == input.at_out){
-            input.onscreen.push_back(i | COLOR_PAIR(okay[input.at_out]+1));
+            input.onscreen.push_back(i | (okay[input.at_out] ? options.prev_okay_flags :options.prev_good_flags) );
             input.at_out++;
           }else {
-            input.onscreen.push_back(i | COLOR_PAIR(4));
+            input.onscreen.push_back(i | options.bad_flags);
             okay[input.at_out] = true;
           }
       }
@@ -231,7 +274,6 @@ private:
 
 };
 
-
 inline void init_ncurses() {
   initscr();
   noecho();
@@ -239,14 +281,27 @@ inline void init_ncurses() {
   keypad(stdscr, TRUE);
   init_tokens();
   start_color();
-  init_pair(1, COLOR_GREEN, COLOR_BLACK);
-  init_pair(2, COLOR_MAGENTA, COLOR_BLACK);
-  init_pair(3, COLOR_WHITE, COLOR_BLACK);
-  init_pair(4, COLOR_RED, COLOR_BLACK);
 }
 inline void init_loop(){
   state = STATE_TYPING;
-  Window w(stdscr);
+  Options op(10);
+  op.set_color_pairs(
+      {COLOR_GREEN, COLOR_BLACK},
+      {COLOR_MAGENTA, COLOR_BLACK},
+      {COLOR_WHITE, COLOR_BLACK},
+      {COLOR_RED, COLOR_BLACK},
+      {COLOR_WHITE, COLOR_BLACK},
+      {COLOR_YELLOW, COLOR_BLACK}
+      );
+  op.set_flags(
+      0,
+      0,
+      0,
+      0,
+      A_ITALIC,
+      A_BOLD
+      );
+  Window w(stdscr, op);
   while (state != STATE_QUIT) {
   auto ch = getch();
     {
