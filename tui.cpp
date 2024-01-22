@@ -16,7 +16,7 @@
 #define OFFSET_X 0
 
 /* 
- * implement settings
+ * implement settings <-
  * have tokens and time on top in diffrent ncurses windows
  * make io asyncronous
  * minimum accuracy
@@ -27,10 +27,11 @@
  */
 
 typedef NCURSES_EXPORT(int) inp;
-enum Behaviour : uint8_t {
-  BEHAVIOUR_STOP = 0x0,
+enum Behaviour : uint64_t  {
   BEHAVIOUR_OVERFLOW = 0x1,
   BEHAVIOUR_OVERWRITE = 0x2,
+  BEHAVIOUR_STOP = 0x3, // == BEHAVIOUR_OVERFLOW | BEHAVIOUR_OVERWRITE,
+  BEHAVIOUR_BACKSPACE = 0x4,
 //   BEHAVIOUR_,
 };
 enum State : uint8_t {
@@ -104,9 +105,14 @@ public:
     this->clock_flags = clock_flags | COLOR_PAIR(6);
   }
   void set_behaviour(Behaviour b){
-    behaviour = b;
+    behaviour = (Behaviour)(behaviour | b);
   }
-  bool is_behaviour();
+  void unset_behaviour(Behaviour b){
+    behaviour = (Behaviour)(behaviour & (~b));
+  }
+  bool is_behaviour(Behaviour b){
+    return behaviour & b;
+  }
 private:
   uint32_t min_tokens, max_tokens;
   Behaviour behaviour;
@@ -177,15 +183,24 @@ private:
     auto &tk = onscreen_tokens[num];
     const Input &out = input_tokens[num];
     move(tk.y, tk.x);
+    for (auto i: out.onscreen){addch(i);};
+    if (out.isdone) {attrdo(options.normal_flags, printw("%s", (tk.value + out.at_out) ));}
+    else {attrdo(options.normal_flags, printw("%s ", (tk.value + out.at_out) ));}
+      /*
     if (out.isdone) {
-      for (auto i: out.onscreen){addch(i);};
-    }else {
+    } else if (options.is_behaviour(BEHAVIOUR_OVERFLOW)){
+      for (auto i: out.onscreen){addch(i);}
+    } else {
       attrdo(options.normal_flags, printw("%s ", tk.value ));
-    }
+    }*/
   }
-  inline const void make_tokens(){
+  inline const void make_tokens(uint32_t num = 0){
+//     int y, x;
+//     if (num <= 0) {y = OFFSET_Y; x =OFFSET_X;}
+//     else {y =onscreen_tokens[num].y; x = onscreen_tokens[num].x;}
+//     move(y, x);
     move(OFFSET_Y, OFFSET_X);
-    for (auto num = 0; num< options.onscreen_token_count; num++){
+    for (; num < options.onscreen_token_count; num++){
       auto &i = onscreen_tokens[num];
       getyx(this->win, i.y, i.x);
       const uint32_t size = i.x + i.size;
@@ -200,6 +215,7 @@ private:
       }
     }
     move(OFFSET_Y, OFFSET_X);
+//     move(y, x);
   }
   inline const void time_keeper(Timeop op) {
     switch (op) {
@@ -236,13 +252,13 @@ private:
       input.isdone = false;
       switch (i) {
         case '\0':
-          if (pos){
-            if ((pos == input.at_out)){input.at_out--;} 
-            input.onscreen.pop_back();
-          } else if (num) {
-            input_tokens[--num].value += '\0';
-          }
-          for (auto j = num; j< options.onscreen_token_count; j++) put_token(j);
+            if (pos){
+              if (pos == input.at_out){if (options.is_behaviour(BEHAVIOUR_BACKSPACE)) input.at_out--; else break;} 
+              input.onscreen.pop_back();
+            } else if (num && options.is_behaviour(BEHAVIOUR_BACKSPACE)) {
+              input_tokens[--num].value += '\0';
+            }
+            for (auto j = num; j< options.onscreen_token_count; j++) put_token(j);
           break;
         case ' ': 
           if (input.at_out == cur.size){
@@ -255,15 +271,22 @@ private:
           if((char)i == cur.value[pos] && pos == input.at_out){
             input.onscreen.push_back(i | (okay[input.at_out] ? options.prev_okay_flags :options.prev_good_flags) );
             input.at_out++;
-          }else {
+          }else if (options.is_behaviour(BEHAVIOUR_OVERFLOW) || options.is_behaviour(BEHAVIOUR_OVERWRITE)) {
             input.onscreen.push_back(i | options.bad_flags);
             okay[input.at_out] = true;
           }
       }
     }
-    move(cur.y, cur.x);
-    for (auto i: input.onscreen){
-      addch(i);
+    {
+      auto &input = input_tokens[num];
+      const auto &cur = onscreen_tokens[num];
+      if (options.is_behaviour(BEHAVIOUR_OVERFLOW)) {
+        handle_redraw(true);
+      }
+      move(cur.y, cur.x);
+      for (auto i: input.onscreen){
+        addch(i);
+      }
     }
     return num;
   }
@@ -301,6 +324,9 @@ inline void init_loop(){
       A_ITALIC,
       A_BOLD
       );
+  op.set_behaviour(BEHAVIOUR_OVERFLOW);
+  assert(op.is_behaviour(BEHAVIOUR_OVERFLOW));
+  //op.set_behaviour(BEHAVIOUR_BACKSPACE);
   Window w(stdscr, op);
   while (state != STATE_QUIT) {
   auto ch = getch();
