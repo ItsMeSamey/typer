@@ -28,10 +28,11 @@
 
 typedef NCURSES_EXPORT(int) inp;
 enum Behaviour : uint64_t  {
-  BEHAVIOUR_OVERFLOW = 0x1,
-  BEHAVIOUR_OVERWRITE = 0x2,
-  BEHAVIOUR_STOP = 0x3, // == BEHAVIOUR_OVERFLOW | BEHAVIOUR_OVERWRITE,
-  BEHAVIOUR_BACKSPACE = 0x4,
+  BEHAVIOUR_STOP = 0x0,
+  BEHAVIOUR_SKIP = 0x1,
+  BEHAVIOUR_OVERFLOW = 0x2,
+  BEHAVIOUR_OVERWRITE = 0x4,
+  BEHAVIOUR_BACKSPACE = 0x8,
 //   BEHAVIOUR_,
 };
 enum State : uint8_t {
@@ -121,7 +122,7 @@ class Window{
 public:
   Options options;
   Window(WINDOW *win, Options op):win(win), options(op){
-    //this->index = 0;
+    getmaxyx(this->win, my, mx);
     next_page();
   }
   inline const bool is_done(const bool take_action = false){
@@ -134,8 +135,7 @@ public:
     auto &input = input_tokens[this->index];
     auto &cur = onscreen_tokens[this->index];
     bool last_in_line = false;
-    auto max_size = cur.size+1;
-    if( this->index == options.onscreen_token_count-1){last_in_line = true; --max_size;}
+    if( this->index == options.onscreen_token_count-1){last_in_line = true;}
     else if (onscreen_tokens[this->index+1].y > cur.y){ last_in_line = true;}
     if (!handle_redraw()){
       time_keeper(TIME_KEEP);
@@ -154,19 +154,20 @@ public:
     process_token();
     is_done(true);
     int x, y; getyx(this->win, y, x);
-    addch((mvinch(y,x) & A_CHARTEXT) | options.next_flags);
+    waddch(this->win, (mvinch(y,x) & A_CHARTEXT) | options.next_flags);
     move(y, x);
     refresh();
   }
   void reset(){
-    this->index = 0;
     input_tokens.clear();
     input_tokens.resize(options.onscreen_token_count);
-    time_keeper(TIME_PUSH_BACK);
+    this->index = 0;
+    time_keeper(TIME_RESET);
     handle_redraw(true);
   }
   void next_page(){
     onscreen_tokens = give_tokens(options.onscreen_token_count);
+    time_keeper(TIME_PUSH_BACK);
     reset();
   }
 private:
@@ -183,23 +184,16 @@ private:
     auto &tk = onscreen_tokens[num];
     const Input &out = input_tokens[num];
     move(tk.y, tk.x);
-    for (auto i: out.onscreen){addch(i);};
-    if (out.isdone) {attrdo(options.normal_flags, printw("%s", (tk.value + out.at_out) ));}
-    else {attrdo(options.normal_flags, printw("%s ", (tk.value + out.at_out) ));}
-      /*
-    if (out.isdone) {
-    } else if (options.is_behaviour(BEHAVIOUR_OVERFLOW)){
-      for (auto i: out.onscreen){addch(i);}
-    } else {
-      attrdo(options.normal_flags, printw("%s ", tk.value ));
-    }*/
+    for (auto i: out.onscreen){waddch(this->win, i);};
+    if(!out.isdone) {
+      attrdo(options.normal_flags, printw("%s ", (tk.value + (options.is_behaviour(BEHAVIOUR_OVERWRITE) ? std::min(out.onscreen.size(), tk.size) : out.at_out)) ));
+    }
   }
   inline const void make_tokens(uint32_t num = 0){
-//     int y, x;
-//     if (num <= 0) {y = OFFSET_Y; x =OFFSET_X;}
-//     else {y =onscreen_tokens[num].y; x = onscreen_tokens[num].x;}
-//     move(y, x);
-    move(OFFSET_Y, OFFSET_X);
+    int y, x;
+    if (num <= 0) {num = 0; y = OFFSET_Y; x =OFFSET_X;}
+    else {y =onscreen_tokens[num].y; x = onscreen_tokens[num].x;}
+    move(y, x);
     for (; num < options.onscreen_token_count; num++){
       auto &i = onscreen_tokens[num];
       getyx(this->win, i.y, i.x);
@@ -210,12 +204,12 @@ private:
         put_token(num);
         move(i.y + 1, OFFSET_X+1);
       } else {
+        const int tolast = this->mx - getcurx(this->win);
+        for (int t = 0; t < tolast; t++) {waddch(this->win, ' ');}
         move(++i.y, i.x = OFFSET_X);
         put_token(num);
       }
     }
-    move(OFFSET_Y, OFFSET_X);
-//     move(y, x);
   }
   inline const void time_keeper(Timeop op) {
     switch (op) {
@@ -234,10 +228,18 @@ private:
   }
   const bool handle_redraw(const bool force = false) {
     if (force || mx != getmaxx(this->win) || my != getmaxy(this->win)) {
-      getmaxyx(this->win, my, mx);
-      clear();
-      time_keeper(TIME_PRINT);
-      make_tokens();
+      const int64_t py = onscreen_tokens.rend()->y;
+      if (!force){
+        getmaxyx(this->win, my, mx);
+        make_tokens();
+      }
+      else {
+        make_tokens(this->index);
+      }
+      int64_t sum = ((int64_t)(1+py) - (int64_t)(onscreen_tokens.rend()->y)) * mx;
+      sum = sum > 0 ? sum : -sum; // abs
+      for (uint32_t i = 0; i < sum; i++) {waddch(this->win, ' ');}
+      process_token();
       return true;
     }
     return false;
@@ -271,10 +273,13 @@ private:
           if((char)i == cur.value[pos] && pos == input.at_out){
             input.onscreen.push_back(i | (okay[input.at_out] ? options.prev_okay_flags :options.prev_good_flags) );
             input.at_out++;
+            if (this->index == options.onscreen_token_count-1 && input.at_out == cur.size){input.isdone = true;}
+            break;
           }else if (options.is_behaviour(BEHAVIOUR_OVERFLOW) || options.is_behaviour(BEHAVIOUR_OVERWRITE)) {
             input.onscreen.push_back(i | options.bad_flags);
-            okay[input.at_out] = true;
           }
+          okay[input.at_out] = true;
+          break;
       }
     }
     {
@@ -285,7 +290,7 @@ private:
       }
       move(cur.y, cur.x);
       for (auto i: input.onscreen){
-        addch(i);
+        waddch(this->win, i);
       }
     }
     return num;
@@ -304,10 +309,11 @@ inline void init_ncurses() {
   keypad(stdscr, TRUE);
   init_tokens();
   start_color();
+  init_color(COLOR_BLACK, 0, 0, 0);
 }
 inline void init_loop(){
   state = STATE_TYPING;
-  Options op(10);
+  Options op(3);
   op.set_color_pairs(
       {COLOR_GREEN, COLOR_BLACK},
       {COLOR_MAGENTA, COLOR_BLACK},
@@ -324,8 +330,7 @@ inline void init_loop(){
       A_ITALIC,
       A_BOLD
       );
-  op.set_behaviour(BEHAVIOUR_OVERFLOW);
-  assert(op.is_behaviour(BEHAVIOUR_OVERFLOW));
+  op.set_behaviour(BEHAVIOUR_STOP);
   //op.set_behaviour(BEHAVIOUR_BACKSPACE);
   Window w(stdscr, op);
   while (state != STATE_QUIT) {
