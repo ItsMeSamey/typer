@@ -118,10 +118,10 @@ private:
   uint32_t min_tokens, max_tokens;
   Behaviour behaviour;
 };
-class Window{
+class Typer{
 public:
   Options options;
-  Window(WINDOW *win, Options op):win(win), options(op){
+  Typer(WINDOW *win, Options op):win(win), options(op){
     getmaxyx(this->win, my, mx);
     next_page();
   }
@@ -271,11 +271,15 @@ private:
           } else [[fallthrough]];
         default:
           if((char)i == cur.value[pos] && pos == input.at_out){
-            input.onscreen.push_back(i | (okay[input.at_out] ? options.prev_okay_flags :options.prev_good_flags) );
-            input.at_out++;
+            input.onscreen.push_back(i | (okay[input.at_out++] ? options.prev_okay_flags :options.prev_good_flags) );
             if (this->index == options.onscreen_token_count-1 && input.at_out == cur.size){input.isdone = true;}
             break;
-          }else if (options.is_behaviour(BEHAVIOUR_OVERFLOW) || options.is_behaviour(BEHAVIOUR_OVERWRITE)) {
+          } else if (options.is_behaviour(BEHAVIOUR_SKIP)) {
+            input.onscreen.push_back(cur.value[pos] | options.prev_okay_flags);
+            okay[input.at_out++] = false;
+            if (pos >= cur.size) {num++;input.isdone = true;}
+            break;
+          } else if (options.is_behaviour(BEHAVIOUR_OVERFLOW) || options.is_behaviour(BEHAVIOUR_OVERWRITE)) {
             input.onscreen.push_back(i | options.bad_flags);
           }
           okay[input.at_out] = true;
@@ -301,6 +305,13 @@ private:
   }
 
 };
+class Settings{
+public:
+  Settings();
+private:
+  ;
+};
+
 
 inline void init_ncurses() {
   initscr();
@@ -330,13 +341,13 @@ inline void init_loop(){
       A_ITALIC,
       A_BOLD
       );
-  op.set_behaviour(BEHAVIOUR_STOP);
+  op.set_behaviour(BEHAVIOUR_SKIP);
   //op.set_behaviour(BEHAVIOUR_BACKSPACE);
-  Window w(stdscr, op);
+  Typer w(stdscr, op);
   while (state != STATE_QUIT) {
   auto ch = getch();
     {
-      int x, y, my = getmaxyx(stdscr, y, x);
+      int x, y, my = getmaxy(stdscr);
       getyx(stdscr, y, x);
       mvprintw(my - 1, 0, "%x", ch);
       move(y, x);
