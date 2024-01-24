@@ -29,7 +29,10 @@ inline void PARSABLE_ARGUMENTS_NAME(char * arg_name, void * callback_or_arg_valu
   static void** args = (void **)malloc(sizeof(void *)*1024*4);
   static size_t total = 1024;
   static size_t filled = 0;
-  if (!arg_name) {return;}
+  if (!arg_name) {
+    static void *call = NULL;
+    if (start && call) ((void(*)(char*, size_t, size_t*))call)((char*)callback_or_arg_value, argc, start);
+  }
   const size_t len = strlen(arg_name);
   if (start == NULL){
     if (filled == total) args = (void**)realloc((void*) args, (total += 1024)*sizeof(void *)*4);
@@ -60,7 +63,7 @@ inline void PARSABLE_ARGUMENTS_NAME(char * arg_name, void * callback_or_arg_valu
         strncpy((char *)&tocomp, arg_name, len>sizeof(void *)?sizeof(void*):len);
         if (tocomp==args[i*4+2]){
           if (len<=sizeof(void*)? true: 0==strcmp(arg_name-sizeof(void*),(char*)args[i*4]-sizeof(void*))){
-            ( (void(*)(char*, char**, size_t, size_t))args[i*4+3] )(arg_name, args_vals, argc, *start);
+            ( (void(*)(char*, char**, size_t, size_t*))args[i*4+3] )(arg_name, args_vals, argc, start);
             break;
           }
         }
