@@ -122,6 +122,7 @@ class Typer{
 public:
   Options options;
   Typer(WINDOW *win, Options op):win(win), options(op){
+    _x = 10, _y = 10;
     getmaxyx(this->win, my, mx);
     next_page();
   }
@@ -153,9 +154,7 @@ public:
     }
     process_token();
     is_done(true);
-    int x, y; getyx(this->win, y, x);
-    waddch(this->win, (mvinch(y,x) & A_CHARTEXT) | options.next_flags);
-    move(y, x);
+    wchgat(this->win, 1, options.next_flags, 5, NULL);
     refresh();
   }
   void reset(){
@@ -175,23 +174,23 @@ private:
   std::vector<std::chrono::steady_clock::time_point> bookmarks;
   std::vector<Token> onscreen_tokens;
   std::vector<Input> input_tokens;
-  uint32_t mx = 0, my = 0, index = 0;
+  int32_t _x, _y, mx, my, index;
   double speed = 0;
   WINDOW *win;
 
-  inline const void put_token(uint32_t num) noexcept{
+  inline const void put_token(uint32_t num, const bool inp_only = false) noexcept{
     assert(num < options.onscreen_token_count);
     auto &tk = onscreen_tokens[num];
     const Input &out = input_tokens[num];
     move(tk.y, tk.x);
     for (auto i: out.onscreen){waddch(this->win, i);};
-    if(!out.isdone) {
+    if(!out.isdone && !inp_only) {
       attrdo(options.normal_flags, printw("%s ", (tk.value + (options.is_behaviour(BEHAVIOUR_OVERWRITE) ? std::min(out.onscreen.size(), tk.size) : out.at_out)) ));
     }
   }
   inline const void make_tokens(uint32_t num = 0){
     int y, x;
-    if (num <= 0) {num = 0; y = OFFSET_Y; x =OFFSET_X;}
+    if (num <= 0) {num = 0; y = _y+1; x =_x;}
     else {y =onscreen_tokens[num].y; x = onscreen_tokens[num].x;}
     move(y, x);
     for (; num < options.onscreen_token_count; num++){
@@ -202,11 +201,11 @@ private:
         put_token(num);
       } else if (size == mx) {
         put_token(num);
-        move(i.y + 1, OFFSET_X+1);
+        move(i.y + 1, _x+1);
       } else {
-        const int tolast = this->mx - getcurx(this->win);
+        const int tolast = this->mx - getcurx(this->win) - _x;
         for (int t = 0; t < tolast; t++) {waddch(this->win, ' ');}
-        move(++i.y, i.x = OFFSET_X);
+        move(++i.y, i.x = _x);
         put_token(num);
       }
     }
@@ -214,7 +213,7 @@ private:
   inline const void time_keeper(Timeop op) {
     switch (op) {
       case TIME_KEEP: bookmarks.push_back(std::chrono::steady_clock::now()); break;
-      case TIME_PRINT: move(0, 0); attrdo(options.clock_flags, printw("%3.2f",speed)); move(OFFSET_Y, OFFSET_X); break;
+      case TIME_PRINT: move(_x, _y); attrdo(options.clock_flags, printw("%3.2f",speed)); break;
       case TIME_PUSH_BACK:
                        if (bookmarks.size() > 2) 
                          speed = (60'000.0*options.onscreen_token_count)/(std::chrono::duration_cast<std::chrono::milliseconds>(*bookmarks.rbegin() - *(bookmarks.begin()+1) ).count());
@@ -227,10 +226,11 @@ private:
     }
   }
   const bool handle_redraw(const bool force = false) {
-    if (force || mx != getmaxx(this->win) || my != getmaxy(this->win)) {
+    static uint32_t _mx = mx, _my = my;
+    if (force || _mx != mx || _my != my) {
       const int64_t py = onscreen_tokens.rend()->y;
       if (!force){
-        getmaxyx(this->win, my, mx);
+        _mx = mx; _my = my;
         make_tokens();
       }
       else {
@@ -239,7 +239,7 @@ private:
       int64_t sum = ((int64_t)(1+py) - (int64_t)(onscreen_tokens.rend()->y)) * mx;
       sum = sum > 0 ? sum : -sum; // abs
       for (uint32_t i = 0; i < sum; i++) {waddch(this->win, ' ');}
-      process_token();
+      put_token(this->index, true); 
       return true;
     }
     return false;
@@ -247,7 +247,9 @@ private:
   uint32_t process_token(uint32_t num) {
     auto &input = input_tokens[num];
     const auto &cur = onscreen_tokens[num];
+    bool inpp = false;
     while (input.at_in < input.value.size()){
+      bool inpp = true;
       const auto &i = input.value[input.at_in++];
       const auto pos = input.onscreen.size();
       auto &okay = input.okay;
@@ -272,17 +274,17 @@ private:
         default:
           if((char)i == cur.value[pos] && pos == input.at_out){
             input.onscreen.push_back(i | (okay[input.at_out++] ? options.prev_okay_flags :options.prev_good_flags) );
-            if (this->index == options.onscreen_token_count-1 && input.at_out == cur.size){input.isdone = true;}
-            break;
           } else if (options.is_behaviour(BEHAVIOUR_SKIP)) {
             input.onscreen.push_back(cur.value[pos] | options.prev_okay_flags);
-            okay[input.at_out++] = false;
+            okay[input.at_out++] = true;
             if (pos >= cur.size) {num++;input.isdone = true;}
-            break;
           } else if (options.is_behaviour(BEHAVIOUR_OVERFLOW) || options.is_behaviour(BEHAVIOUR_OVERWRITE)) {
             input.onscreen.push_back(i | options.bad_flags);
+            okay[input.at_out] = true;
+          } else {
+            okay[input.at_out] = true;
           }
-          okay[input.at_out] = true;
+          if (this->index == options.onscreen_token_count-1 && input.at_out == cur.size){input.isdone = true;}
           break;
       }
     }
@@ -292,10 +294,7 @@ private:
       if (options.is_behaviour(BEHAVIOUR_OVERFLOW)) {
         handle_redraw(true);
       }
-      move(cur.y, cur.x);
-      for (auto i: input.onscreen){
-        waddch(this->win, i);
-      }
+      put_token(this->index, true);
     }
     return num;
   }
@@ -309,7 +308,7 @@ class Settings{
 public:
   Settings();
 private:
-  ;
+  MEVENT event;
 };
 
 
@@ -324,8 +323,8 @@ inline void init_ncurses() {
 }
 inline void init_loop(){
   state = STATE_TYPING;
-  Options op(3);
-  op.set_color_pairs(
+  Typer w(stdscr, Options(3));
+  w.options.set_color_pairs(
       {COLOR_GREEN, COLOR_BLACK},
       {COLOR_MAGENTA, COLOR_BLACK},
       {COLOR_WHITE, COLOR_BLACK},
@@ -333,7 +332,7 @@ inline void init_loop(){
       {COLOR_WHITE, COLOR_BLACK},
       {COLOR_YELLOW, COLOR_BLACK}
       );
-  op.set_flags(
+  w.options.set_flags(
       0,
       0,
       0,
@@ -341,11 +340,10 @@ inline void init_loop(){
       A_ITALIC,
       A_BOLD
       );
-  op.set_behaviour(BEHAVIOUR_SKIP);
-  //op.set_behaviour(BEHAVIOUR_BACKSPACE);
-  Typer w(stdscr, op);
+  w.options.set_behaviour(BEHAVIOUR_OVERFLOW);
+  w.options.set_behaviour(BEHAVIOUR_BACKSPACE);
+  inp ch = 'c';
   while (state != STATE_QUIT) {
-  auto ch = getch();
     {
       int x, y, my = getmaxy(stdscr);
       getyx(stdscr, y, x);
@@ -363,6 +361,7 @@ inline void init_loop(){
       case STATE_QUIT: goto end_all;
       default: goto end_all;
     }
+    ch = getch();
   }
 end_all:
   endwin();

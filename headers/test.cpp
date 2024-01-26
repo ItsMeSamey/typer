@@ -1,13 +1,19 @@
-#include <cstdio>
-#include "arg-parse-c.h"
+// #include <cstdio>
+#include "multi-file-c.h"
 
-void parg(char* a, char** v, size_t t1, size_t t2){
- printf("A: %s; B: %s;\n", a, *v?*v:"");
+void parg(char *a, char **v, size_t t1, size_t t2) {
+  printf("A: %s; B: %s;\n", a, *v ? *v : "");
 }
 
-int main(int argc,char **argv){
-  char *a = (char *)"a";
-  arg_parser::parsable_arguments(a, (void *)parg);
-  arg_parser::parse_arguments(argc, argv);
+int main(int argc, char **argv) {
+  multi_file_struct S;
+  multi_file_write_oprations(&S, 0, (void*)"1.txt", 1);
+  multi_file_write_oprations(&S, 2, (void*)"HELLO M ", 0);
+  multi_file_write_oprations(&S, 2, (void*)"HELLO MYGUY", 0);
+  multi_file_write_oprations(&S, 2, (void*)"This Seems To be working", 0);
+//   multi_file_write_oprations(&S, 0, (void*)"1.txt", 1);
+//   multi_file_write_oprations(&S, 2, (void*)"YES REALLLLYYYYYYYYYYY!!!!!!!!!!!!!!", 1);
+  multi_file_write_oprations(&S, 3);
+  void *what;
   return 0;
 }
