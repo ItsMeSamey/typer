@@ -9,6 +9,7 @@
 //#include <unistd.h>
 #include "tui.hpp"
 #include "tokens/tokanizer.hpp"
+#include "headers/array-saver-c.h" 
 
 #define attrdo(attr, stuff...) attron(attr);stuff;attroff(attr);
 //#define attrdo(attr, stuff...) if (attroff(attr) !=0 ){attron(attr);stuff;}else{attron(attr);stuff;attroff(attr);}
@@ -122,7 +123,7 @@ class Typer{
 public:
   Options options;
   Typer(WINDOW *win, Options op):win(win), options(op){
-    _x = 10, _y = 10;
+    _x = 0, _y = 0;
     getmaxyx(this->win, my, mx);
     next_page();
   }
