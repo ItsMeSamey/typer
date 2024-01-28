@@ -6,10 +6,10 @@
 #include <string>
 #include <vector>
 #include <cassert>
-//#include <unistd.h>
+#include <unistd.h>
 #include "tui.hpp"
 #include "tokens/tokanizer.hpp"
-#include "headers/array-saver-c.h" 
+#include "headers/array-saver.h" 
 
 #define attrdo(attr, stuff...) attron(attr);stuff;attroff(attr);
 //#define attrdo(attr, stuff...) if (attroff(attr) !=0 ){attron(attr);stuff;}else{attron(attr);stuff;attroff(attr);}
@@ -18,13 +18,12 @@
 
 /* 
  * implement settings <-
- * have tokens and time on top in diffrent ncurses windows
  * make io asyncronous
  * minimum accuracy
  * add burst speed (maybe)
- * keep history
- * do files (users can open the=ir own token or literal files)
- * compare to last time(word speed)
+ * keep history <-
+ * do files (users can open their own token or literal files)
+ * compare to last time (word speed) (slow ?)
  */
 
 typedef NCURSES_EXPORT(int) inp;

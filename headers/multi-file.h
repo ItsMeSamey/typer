@@ -41,32 +41,37 @@ void multi_file_init(multi_file_struct *STRUCT, uint64_t INDEX, FILE *FILEPTR = 
     ((multi_file_struct*)cur->next)->next = NULL;
   }
 }
+void multi_file_sub_file_init(multi_file_struct *PARENT, uint64_t INDEX, multi_file_struct *CHILD){
+  multi_file_struct *_cur = INDEX + (multi_file_struct *)((size_t)PARENT->next + sizeof(uint64_t)*2);
+  FILE *f = open_memstream( (char **)(&((multi_file_struct *)_cur->next)->file), (size_t *)((size_t)_cur->next + sizeof(multi_file_struct)));
+  *(uint8_t *)( (size_t)(_cur->next) + sizeof(multi_file_struct) + sizeof(size_t)) = 1;
+  multi_file_init(CHILD, 0, f);
+}
 FILE *multi_file_init(multi_file_struct *STRUCT, uint64_t INDEX, char *FILE_NAME){
   FILE *f = fopen(FILE_NAME, "w");
   fseek(f, 0L, SEEK_SET);
   multi_file_init(STRUCT, INDEX, f);
   return f;
 }
-void multi_file_write(multi_file_struct *STRUCT, uint64_t INDEX = 0,char *DATA = NULL, uint64_t len = 0, char OPERATION = 0){
+void multi_file_write(multi_file_struct *STRUCT, uint64_t INDEX = 0,char *DATA = NULL, uint64_t LEN = 0, char OPERATION = 0){
   const char COPY=2, FREEABLE=1, NONFREE=0;
   uint64_t i, tell;
   FILE *multi_file;
   void *temp;
-  multi_file_struct *_cur, *cur;
-  len = len ? len :strlen((char*)DATA);
+  multi_file_struct *_cur = ((multi_file_struct*)(2*sizeof(uint64_t)+(char*)STRUCT->next)) + INDEX;
+  multi_file_struct *cur = (multi_file_struct*)_cur->next;
+  LEN = LEN ? LEN :strlen((char*)DATA);
   switch(OPERATION){
     case COPY:
-      temp = DATA; DATA = (char *)malloc(len * sizeof(char));memcpy(DATA, temp, sizeof(char)*len);
+      temp = DATA; DATA = (char *)malloc(LEN * sizeof(char));memcpy(DATA, temp, sizeof(char)*LEN);
       /*[[fallthrough]]*/
     case FREEABLE:
-      *(uint8_t *)( (size_t)(((multi_file_struct*)(2*sizeof(uint64_t)+(size_t)STRUCT->next))[INDEX].next) + sizeof(multi_file_struct) + sizeof(size_t)) = 1;
+      *(uint8_t *)( (size_t)(_cur->next) + sizeof(multi_file_struct) + sizeof(size_t)) = 1;
       /*[[fallthrough]]*/
     case NONFREE:
-      _cur = &((multi_file_struct*)(2*sizeof(uint64_t)+(char*)STRUCT->next))[INDEX];
-      cur = (multi_file_struct*)_cur->next;
       cur->file = (void*)DATA;
       cur->next = malloc(sizeof(multi_file_struct) + sizeof(size_t) + 1);
-      *(uint64_t *)(((size_t)_cur->next) + sizeof(multi_file_struct)) = len;
+      *(uint64_t *)(((size_t)_cur->next) + sizeof(multi_file_struct)) = LEN;
       _cur->next = cur->next;
       *(uint8_t *)((char*)cur->next + sizeof(multi_file_struct) + sizeof(size_t)) = 0;
       ((multi_file_struct*)cur->next)->next = NULL;
