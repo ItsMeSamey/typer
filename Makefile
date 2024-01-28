@@ -18,7 +18,8 @@ build: Makefile
 	$(CXX) $(WARNINGS) $(DEBUG) $(OPTIMIZE) $(STANDARD) $(LINKS) tokanizer.o tokanizer_inbuilt.o tui.o
 
 clean:
-	rm a.out tui.o tokanizer.o tokanizer_inbuilt.o & git rm a.out tui.o tokanizer.o tokanizer_inbuilt.o
+	rm -f a.out tui.o tokanizer.o tokanizer_inbuilt.o
+	git rm -f a.out tui.o tokanizer.o tokanizer_inbuilt.o
 
 # Builder uses this target to run your application.
 run:
